@@ -2,6 +2,7 @@ package com.hasanmen.smartfiredetector;
 
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
+import android.bluetooth.BluetoothSocket;
 import android.content.Context;
 import android.content.Intent;
 import android.support.v7.app.AppCompatActivity;
@@ -17,9 +18,13 @@ import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.ToggleButton;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.Set;
+import java.util.UUID;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -33,13 +38,14 @@ public class MainActivity extends AppCompatActivity {
     private Button btn_connectBLU = null;
     private Button btn_sendInfo = null;
     private ToggleButton btn_btState = null;
+    private TextView tv_connState = null;
 
-    private EditText val=null;
+    private EditText val = null;
 
     private static final int LIST_DEVICES_RESULT_CODE = 1;
     private static final String TAG = "MainActivity";
 
-    private ConnectThread bluThread=null;
+    private ComThread bluThread = null;
 
 
     @Override
@@ -49,6 +55,7 @@ public class MainActivity extends AppCompatActivity {
         context = getApplicationContext();
 
         bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+
 
         // if bluetooth closed, open it
         btn_btState = (ToggleButton) findViewById(R.id.btn_btState);
@@ -85,22 +92,21 @@ public class MainActivity extends AppCompatActivity {
         });
 
 
-
         btn_connectBLU = (Button) findViewById(R.id.btn_connectBLU);
         btn_connectBLU.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                Log.d(TAG,"Connect button clicked");
-                if(connectedDevice==null){
-                    Toast.makeText(context,"Please select a bluetooth device!",Toast.LENGTH_SHORT).show();
+                Log.d(TAG, "Connect button clicked");
+                if (connectedDevice == null) {
+                    Toast.makeText(context, "Please select a bluetooth device!", Toast.LENGTH_SHORT).show();
                     return;
                 }
-                bluThread = new ConnectThread(connectedDevice);
+                bluThread = new ComThread(connectedDevice);
                 bluThread.start();
             }
         });
 
-        val = (EditText)findViewById(R.id.et_val);
+        val = (EditText) findViewById(R.id.et_val);
 
         btn_sendInfo = (Button) findViewById(R.id.btn_sendInfo);
         btn_sendInfo.setOnClickListener(new View.OnClickListener() {
@@ -110,7 +116,91 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
+        tv_connState = (TextView) findViewById(R.id.tv_connState);
 
+
+    }
+
+
+    private class ComThread extends Thread {
+
+        private static final String TAG = "ConnectThread";
+        private final BluetoothSocket btSocket;
+        private final BluetoothDevice btDevice;
+
+        private InputStream inputStream;
+        private OutputStream outputStream;
+
+        private UUID applicationUUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
+
+        public ComThread(BluetoothDevice device) {
+            btDevice = device;
+
+            BluetoothSocket tmp = null;
+            try {
+
+                tmp = btDevice.createRfcommSocketToServiceRecord(applicationUUID);
+
+                inputStream = tmp.getInputStream();
+                outputStream = tmp.getOutputStream();
+
+            } catch (IOException e) {
+                Log.e("ERROR", "Bluetooth socket creation error.", e);
+            }
+
+            btSocket = tmp;
+        }
+
+
+        @Override
+        public void run() {
+            BluetoothAdapter.getDefaultAdapter().cancelDiscovery();
+            TextView tv = (TextView) findViewById(R.id.tv_connState);
+
+            try {
+                btSocket.connect();
+                //tv.setText("Connected");
+
+                listenBT();
+
+            } catch (IOException ex) {
+                Log.e(TAG, "Bluetooth connection error", ex);
+                try {
+                    btSocket.close();
+                } catch (IOException e) {
+                    Log.e(TAG, "Bluetooth socket close error!", e);
+                }
+                return;
+            }
+        }
+
+        public void sentData(byte[] bytes) {
+            try {
+                outputStream.write(bytes);
+                Log.d(TAG,"write1");
+
+            } catch (IOException e) {
+                Log.e(TAG, "Error occurred when sending data", e);
+            }
+        }
+
+        public void listenBT() {
+            TextView tv = (TextView) findViewById(R.id.tvStatus);
+            try {
+                while (true) {
+                        Log.d(TAG,"read");
+                        int val = inputStream.read();
+                        if (val == '0') {
+                            tv.setText("SAFE");
+                        } else {
+                            tv.setText("ALERT");
+                        }
+                }
+            } catch (Exception e) {
+                Log.e(TAG, e.getMessage());
+            }
+
+        }
     }
 
     @Override
@@ -131,8 +221,8 @@ public class MainActivity extends AppCompatActivity {
 
             if (iter.hasNext()) {
                 connectedDevice = iter.next();
-                tv.setText("Device MAC:"+connectedDevice.getAddress());
-                Log.d(TAG,"Device Name:"+connectedDevice.getName());
+                tv.setText("Device MAC:" + connectedDevice.getAddress());
+                Log.d(TAG, "Device Name:" + connectedDevice.getName());
             } else connectedDevice = null;
         }
     }
